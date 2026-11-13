@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Locator fixture</title>
+    <style>
+      body { margin: 0; padding: 24px; font: 15px system-ui, sans-serif; }
+      section { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; }
+      .card { width: 220px; padding: 16px; border: 1px solid #ccc; border-radius: 12px; cursor: pointer; }
+      .spacer { height: 1800px; }
+      #overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: none; }
+    </style>
+  </head>
+  <body>
+    <section>
+      <button id="save">Save</button>
+      <button id="save-draft">Save draft</button>
+      <button id="close" aria-label="Close dialog">×</button>
+      <button id="delete" disabled>Delete</button>
+      <button id="ghost" style="display: none">Ghost</button>
+      <a id="pricing" href="#pricing">Pricing</a>
+    </section>
+
+    <section>
+      <label for="email">Email address</label>
+      <input id="email" />
+      <input id="search" placeholder="Search projects" />
+      <select id="country" aria-label="Country">
+        <option>Pakistan</option>
+        <option>Turkey</option>
+        <option>Brazil</option>
+      </select>
+    </section>
+
+    <section>
+      <div class="card" id="plan" onclick="window.picked = 'plan'">
+        <h3>Pro plan</h3>
+        <p>For teams that ship every week.</p>
+      </div>
+      <div id="row" style="cursor: pointer" onclick="window.picked = 'row'"><span>Open settings</span></div>
+      <p id="plain">Just a paragraph</p>
+    </section>
+
+    <section id="first-list"><span>Fruit</span><button class="add">Add</button></section>
+    <section id="second-list"><span>Vegetables</span><button class="add">Add</button></section>
+
+    <section>
+      <my-widget></my-widget>
+      <button id="counter">Clicked 0 times</button>
+      <button id="cover">Covered button</button>
+    </section>
+
+    <div class="spacer"></div>
+    <button id="far">Far below</button>
+    <div id="overlay"></div>
+
+    <script>
+      customElements.define(
+        'my-widget',
+        class extends HTMLElement {
+          constructor() {
+            super();
+            const root = this.attachShadow({ mode: 'open' });
+            root.innerHTML = '<button id="inner">Shadow action</button>';
+            root.getElementById('inner').addEventListener('click', () => (window.picked = 'shadow'));
+          }
+        },
+      );
+      let count = 0;
+      document.getElementById('counter').addEventListener('click', (event) => {
+        count += 1;
+        event.target.textContent = `Clicked ${count} times`;
+      });
+      window.keys = [];
+      document.addEventListener('keydown', (event) => {
+        window.keys.push(`${event.metaKey ? 'Meta+' : ''}${event.ctrlKey ? 'Control+' : ''}${event.shiftKey ? 'Shift+' : ''}${event.key}`);
+      });
+    </script>
+  </body>
+</html>
