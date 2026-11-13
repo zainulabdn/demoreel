@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { VERSION } from '../skills/demoreel/scripts/lib/version.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const read = (path) => readFileSync(`${root}${path}`, 'utf8');
+// Line endings are normalised so these checks do not depend on how git checked the files out.
+const read = (path) => readFileSync(`${root}${path}`, 'utf8').replace(/\r\n/g, '\n');
 const json = (path) => JSON.parse(read(path));
 
 test('every manifest carries the same version', () => {

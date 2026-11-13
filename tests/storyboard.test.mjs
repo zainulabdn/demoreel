@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { expandEnv, normalizeStoryboard } from '../skills/demoreel/scripts/lib/storyboard.mjs';
 import { DemoreelError } from '../skills/demoreel/scripts/lib/util.mjs';
@@ -26,7 +27,8 @@ test('fills in sensible defaults', () => {
   assert.equal(story.output.height, 1080);
   assert.equal(story.output.fps, 30);
   assert.deepEqual(story.output.formats, ['mp4', 'gif']);
-  assert.equal(story.output.dir, '/tmp/project');
+  // resolve() gives the platform's own form of the path (a drive letter on Windows).
+  assert.equal(story.output.dir, resolve('/tmp/project'));
   assert.equal(story.style.frame, 'browser');
   assert.equal(story.style.zoom, 1.6);
   assert.equal(story.hasCaptions, false);
@@ -107,7 +109,7 @@ test('output sizes are presets or explicit, and always even', () => {
 
 test('"serve" makes the url optional and resolves relative to the storyboard', () => {
   const story = normalizeStoryboard({ serve: './dist', steps: [{ wait: 100 }] }, '/tmp/project/demo.reel.json');
-  assert.equal(story.serve, '/tmp/project/dist');
+  assert.equal(story.serve, resolve('/tmp/project/dist'));
   assert.equal(story.url, '/');
 });
 

@@ -1,2 +1,7 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Keep text files with Unix line endings on every platform, including Windows checkouts.
+* text=auto eol=lf
+
+*.png binary
+*.gif binary
+*.mp4 binary
+*.jpg binary
