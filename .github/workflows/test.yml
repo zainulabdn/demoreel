@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Hosted Linux runners restrict the browser sandbox; the tests only open local pages.
+  DEMOREEL_NO_SANDBOX: '1'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # GitHub's runners come with Google Chrome installed, which is all the browser tests need.
+      - run: node skills/demoreel/scripts/demoreel.mjs doctor
+      - run: npm test
