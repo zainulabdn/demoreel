@@ -1,0 +1,20 @@
+{
+  "name": "demoreel",
+  "interface": {
+    "displayName": "Demoreel"
+  },
+  "plugins": [
+    {
+      "name": "demoreel",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "demoreel",
+  "version": "0.1.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions, MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
+  "author": {
+    "name": "Zain Ul Abideen",
+    "url": "https://github.com/zainulabdn"
+  },
+  "homepage": "https://github.com/zainulabdn/demoreel",
+  "repository": "https://github.com/zainulabdn/demoreel",
+  "license": "MIT",
+  "keywords": [
+    "demo",
+    "video",
+    "screen-recording",
+    "gif",
+    "product-demo",
+    "walkthrough",
+    "readme"
+  ],
+  "skills": "./skills/",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "Demoreel",
+    "shortDescription": "Record a demo video of your real app",
+    "longDescription": "Codex writes a short storyboard of plain-language steps, then Demoreel drives your real web app in a headless browser and renders a polished demo video: smooth cursor, automatic zoom on each action, captions, a browser or phone frame and a designed background. It exports MP4 and GIF, plus a contact sheet Codex reads to check its own video. Everything runs on your machine with no dependencies beyond Node and a Chromium-based browser.",
+    "developerName": "Zain Ul Abideen",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/zainulabdn/demoreel",
+    "defaultPrompt": [
+      "Make a demo video of this app",
+      "Record a GIF of the checkout flow for the README",
+      "Make a vertical demo video of the mobile layout"
+    ],
+    "brandColor": "#6D4AFF",
+    "screenshots": [],
+    "composerIcon": "./.codex-plugin/icon.png",
+    "logo": "./.codex-plugin/icon.png"
+  }
+}

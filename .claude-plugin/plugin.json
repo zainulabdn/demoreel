@@ -1,0 +1,14 @@
+{
+  "name": "demoreel",
+  "displayName": "Demoreel",
+  "version": "0.1.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions, MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
+  "author": {
+    "name": "Zain Ul Abideen",
+    "url": "https://github.com/zainulabdn"
+  },
+  "homepage": "https://github.com/zainulabdn/demoreel",
+  "repository": "https://github.com/zainulabdn/demoreel",
+  "license": "MIT",
+  "keywords": ["demo", "video", "screen-recording", "gif", "product-demo", "walkthrough", "readme"]
+}

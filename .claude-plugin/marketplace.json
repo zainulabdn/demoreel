@@ -1,0 +1,18 @@
+{
+  "name": "demoreel",
+  "owner": {
+    "name": "Zain Ul Abideen",
+    "url": "https://github.com/zainulabdn"
+  },
+  "metadata": {
+    "description": "Demoreel: demo videos of your real app, recorded by your coding agent."
+  },
+  "plugins": [
+    {
+      "name": "demoreel",
+      "source": "./",
+      "description": "Record a polished demo video (MP4 and GIF) of a real web app from a plain-language storyboard: smooth cursor, automatic zoom, captions and a designed frame.",
+      "category": "productivity"
+    }
+  ]
+}
