@@ -1,0 +1,17 @@
+{
+  "serve": ".",
+  "viewport": "phone",
+  "displayUrl": "lumen.app",
+  "output": { "size": "vertical" },
+  "style": { "background": "ocean" },
+  "steps": [
+    { "say": "Works on your phone too" },
+    { "type": "Ship the new onboarding", "into": "Add a task" },
+    { "press": "Enter" },
+
+    { "say": "Tap to check things off" },
+    { "click": "Review the new icons with the team" },
+    { "click": "Prototype the checkout in Figma" },
+    { "click": "Ship the new onboarding", "pause": 1600 }
+  ]
+}
