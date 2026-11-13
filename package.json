@@ -1,0 +1,40 @@
+{
+  "name": "demoreel",
+  "version": "0.1.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent. Zero dependencies: just Node and the Chrome you already have.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "demoreel": "skills/demoreel/scripts/demoreel.mjs"
+  },
+  "files": [
+    "skills/demoreel",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:unit": "DEMOREEL_E2E=0 node --test",
+    "demo": "node skills/demoreel/scripts/demoreel.mjs record examples/lumen/demo.reel.json"
+  },
+  "keywords": [
+    "demo-video",
+    "screen-recording",
+    "agent-skill",
+    "claude-code",
+    "codex",
+    "product-demo",
+    "gif",
+    "mp4"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zainulabdn/demoreel.git"
+  },
+  "homepage": "https://github.com/zainulabdn/demoreel",
+  "bugs": "https://github.com/zainulabdn/demoreel/issues",
+  "author": "Zain Ul Abideen (https://github.com/zainulabdn)"
+}

@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+
+# Videos made while trying the examples. The published ones live in docs/media.
+examples/**/*.mp4
+examples/**/*.gif
+examples/**/*.poster.png
+examples/**/*.sheet.png
