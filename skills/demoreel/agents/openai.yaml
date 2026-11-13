@@ -1,0 +1,4 @@
+interface:
+  display_name: "Demoreel"
+  short_description: "Record a polished demo video of your real web app"
+  default_prompt: "Use $demoreel to record a demo video of this app's main flow, check the contact sheet, and tell me where the files are."
