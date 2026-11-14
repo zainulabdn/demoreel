@@ -14,6 +14,7 @@ Sound.
 - `render` can change the music and the click sounds of a kept recording without recording again.
 - New settings `DEMOREEL_VIDEO_ENCODER=ffmpeg` and `DEMOREEL_AUDIO_ENCODER=ffmpeg` hand encoding to ffmpeg on a machine where the browser's encoder misbehaves.
 - A release workflow: pushing a version tag publishes a GitHub release from this changelog.
+- Fixed: a change on the page that takes a single frame, such as text replaced with no animation, was missing from the video half the time, until something else on the page moved. Anything that repaints 30 times a second, such as a playing video, was recorded at 15. The recorder now looks at every frame.
 
 Sound has been tested on macOS. On Windows and Linux the built-in voice and the natural voice installer are written but not yet tried on a real machine; please open an issue if one fails.
 

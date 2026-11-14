@@ -20,6 +20,48 @@ const VOICE_GAP = 280;
 /** How long the video runs on after the last word. */
 const VOICE_TAIL = 700;
 
+/**
+ * Thins the frames the browser sends to at most one every `minGap` milliseconds, without ever
+ * losing the newest one. A frame that comes too soon after the last one kept is held: the next
+ * frame replaces it, and if none follows within `holdMs` it is kept after all.
+ *
+ * The browser can do the thinning itself (every second frame), but it does so blindly. A change
+ * that takes a single frame, such as text replaced with no animation, was then left out half
+ * the time, and the video went on showing the old page until something else moved.
+ *
+ * @param {number} minGap  milliseconds between two kept frames
+ * @param {(frame: {epochMs: number}) => void} keep  called with every frame that is kept, in order
+ * @returns {{ push(frame: {epochMs: number}): void, flush(): void }}  call flush() when the recording ends
+ */
+export function frameThinner(minGap, keep, { holdMs = 80, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  let lastKept = -Infinity;
+  let held = null;
+  let timer = null;
+  const take = (frame) => {
+    lastKept = frame.epochMs;
+    keep(frame);
+  };
+  const flush = () => {
+    clearTimer(timer);
+    timer = null;
+    if (held) take(held);
+    held = null;
+  };
+  const push = (frame) => {
+    clearTimer(timer);
+    timer = null;
+    if (frame.epochMs - lastKept >= minGap) {
+      held = null;
+      take(frame);
+    } else {
+      held = frame;
+      timer = setTimer(flush, holdMs);
+      timer?.unref?.();
+    }
+  };
+  return { push, flush };
+}
+
 /** Collects everything that happens during a recording, on one clock (ms since the first frame). */
 export class Tape {
   constructor(dir) {
@@ -441,6 +483,7 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
     await page.goto(app.baseUrl);
 
     const fps = storyboard.output.fps;
+    let frames = null;
     if (tape) {
       const trackUrl = (url) => tape.url(url);
       session.on('Page.frameNavigated', (params) => {
@@ -452,6 +495,8 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
       const gotFirstFrame = new Promise((resolve) => {
         firstFrame = resolve;
       });
+      // Every frame is asked for and the thinning is done here, so that no change is missed.
+      frames = frameThinner((1000 / fps) * 0.75, (frame) => tape.addFrame(frame.data, frame.epochMs));
       session.on('Page.screencastFrame', (params) => {
         session.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
         const epochMs = params.metadata.timestamp * 1000;
@@ -459,9 +504,9 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
           tape.start(epochMs);
           firstFrame();
         }
-        tape.addFrame(params.data, epochMs);
+        frames.push({ data: params.data, epochMs });
       });
-      await session.send('Page.startScreencast', { format: 'jpeg', quality: 92, everyNthFrame: fps > 30 ? 1 : 2 });
+      await session.send('Page.startScreencast', { format: 'jpeg', quality: 92, everyNthFrame: 1 });
       await Promise.race([gotFirstFrame, sleep(1200)]);
       if (!tape.started) {
         // A completely still page may not produce a frame on its own: take one by hand.
@@ -527,6 +572,7 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
       // Never cut off the last spoken line.
       await sleep(context.voiceEnd + VOICE_TAIL - tape.now());
       await session.send('Page.stopScreencast').catch(() => {});
+      frames.flush();
       timeline = await tape.finish(storyboard.viewport, storyboard.scale);
       if (timeline.frames.length < 2) {
         throw new DemoreelError('The recording captured no frames.', 'Run "demoreel doctor" to check the browser.');

@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, test } from 'node:test';
@@ -269,6 +269,33 @@ describe('recording the example app end to end', { skip }, () => {
       assert.ok(statSync(join(outDir, name)).size > 20_000);
     }
     assert.equal(png1080(readFileSync(join(outDir, 'demo.poster.png'))), '1920x1080');
+  });
+
+  test('record keeps a change that takes a single frame', () => {
+    // Text that is replaced with no animation repaints the page once. Eight such changes,
+    // far apart, must give eight frames: none may be thinned away.
+    const site = join(outDir, 'still');
+    mkdirSync(site);
+    writeFileSync(
+      join(site, 'index.html'),
+      `<!doctype html><title>Still</title><body style="margin:0;background:#fff;font:64px sans-serif"><p id="n">0</p>
+      <script>
+        window.count = () => new Promise((done) => {
+          for (let i = 1; i <= 8; i++) setTimeout(() => { document.getElementById('n').textContent = i; }, i * 280);
+          setTimeout(done, 8 * 280 + 150);
+        });
+      </script>`,
+    );
+    const story = join(outDir, 'still.reel.json');
+    writeFileSync(story, JSON.stringify({ serve: site, output: { formats: ['gif'], size: '720p' }, steps: [{ wait: 600 }, { eval: 'await count()' }, { wait: 300 }] }));
+    const result = run(['record', story, '--out', outDir, '--keep', '--json']);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    after(() => rmSync(report.recording, { recursive: true, force: true }));
+    const timeline = JSON.parse(readFileSync(join(report.recording, 'timeline.json'), 'utf8'));
+    const counting = timeline.steps[1];
+    const frames = timeline.frames.filter((frame) => frame.t >= counting.t0 && frame.t <= counting.t1);
+    assert.ok(frames.length >= 8, `${frames.length} frames for 8 changes`);
   });
 
   test('record with sound: spoken lines set the pace, and the MP4 gets a sound track', (t) => {
