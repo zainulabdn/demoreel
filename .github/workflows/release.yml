@@ -1,0 +1,70 @@
+name: release
+
+# Publishes a release when a version tag is pushed:
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# The release notes are that version's section of CHANGELOG.md. If the repository has an
+# NPM_TOKEN secret, the package is also published to npm; without it that step is skipped.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the release
+  id-token: write # lets npm record which commit and workflow built the package
+
+env:
+  # Hosted Linux runners restrict the browser sandbox; the tests only open local pages.
+  DEMOREEL_NO_SANDBOX: '1'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Check that the tag is the version in package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but package.json says $version. Tag the commit that has the right version."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - run: npm test
+
+      - name: Write the release notes from the changelog
+        run: |
+          {
+            echo "![Demoreel demo](https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/docs/media/demo.gif)"
+            echo
+            awk -v heading="## $VERSION" '$0 == heading { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md
+          } > "$RUNNER_TEMP/notes.md"
+          if [ "$(grep -c '^- ' "$RUNNER_TEMP/notes.md")" -eq 0 ]; then
+            echo "::error::CHANGELOG.md has no entries under \"## $VERSION\"."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "Demoreel $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::There is no NPM_TOKEN secret, so nothing was published to npm."
+            exit 0
+          fi
+          npm publish --provenance --access public
