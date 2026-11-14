@@ -1,10 +1,12 @@
 // Runs in a headless browser tab. Reads the render plan, draws every output frame,
-// and encodes the result to MP4 (H.264 through the browser's own encoder) and GIF.
+// and encodes the result to MP4 (H.264 and AAC through the browser's own encoders) and GIF.
 // Finished files are posted back to the local Demoreel process that opened this page.
 
+import { encodeWav } from './audio.js';
 import { GifWriter, Histogram, Quantizer, buildPalette } from './gif.js';
 import { Mp4Muxer } from './mp4.js';
 import { createScene } from './scene.js';
+import { buildSoundtrack, encodeAac, pickAacConfig } from './soundtrack.js';
 
 const report = (data) => {
   try {
@@ -24,7 +26,7 @@ const tick = () =>
 
 async function upload(path, body) {
   const response = await fetch(path, { method: 'POST', body });
-  if (!response.ok) throw new Error(`Could not save ${path} (${response.status}).`);
+  if (!response.ok) throw new Error(`Could not save ${path} (${response.status}). ${(await response.text()).slice(0, 400)}`.trim());
   return response.json();
 }
 
@@ -151,7 +153,7 @@ window.__demoreelRender = async () => {
   let encodeError = null;
   let useSink = false;
   if (wantMp4) {
-    const config = await pickEncoderConfig(plan);
+    const config = encode.videoEncoder === 'ffmpeg' ? null : await pickEncoderConfig(plan);
     if (config) {
       result.codec = config.codec;
       muxer = new Mp4Muxer({ width: layout.width, height: layout.height, fps });
@@ -177,7 +179,7 @@ window.__demoreelRender = async () => {
     } else if (encode.sink) {
       useSink = true;
       result.codec = 'ffmpeg';
-      result.notes.push('This browser has no H.264 encoder, so frames were handed to ffmpeg.');
+      result.notes.push(encode.videoEncoder === 'ffmpeg' ? 'The video was encoded by ffmpeg, as DEMOREEL_VIDEO_ENCODER asks.' : 'This browser has no H.264 encoder, so frames were handed to ffmpeg.');
     } else {
       return {
         ok: false,
@@ -185,6 +187,45 @@ window.__demoreelRender = async () => {
         message: 'This browser cannot encode H.264 video.',
       };
     }
+  }
+
+  // ---- sound: mixed before the picture is drawn, because ffmpeg (when it is used) needs it from the first frame.
+  let sound = null;
+  if (plan.audio && (encoder || useSink)) {
+    report({ phase: 'sound' });
+    const load = async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`The sound file ${url} is missing from the recording.`);
+      return response.arrayBuffer();
+    };
+    const mix = await buildSoundtrack(plan.audio, load);
+    const wav = () => new Blob([encodeWav([mix.left, mix.right], plan.audio.sampleRate)], { type: 'audio/wav' });
+    const aacConfig = encoder && encode.audioEncoder !== 'ffmpeg' ? await pickAacConfig(plan.audio.bitrate, plan.audio.sampleRate) : null;
+    if (aacConfig) {
+      sound = { mode: 'browser', aac: await encodeAac(aacConfig, mix.left, mix.right), length: mix.left.length };
+    } else if (encode.sink) {
+      await upload('sink/audio', wav());
+      sound = { mode: 'ffmpeg' };
+      if (encoder) {
+        result.notes.push(encode.audioEncoder === 'ffmpeg' ? 'The sound was encoded by ffmpeg, as DEMOREEL_AUDIO_ENCODER asks.' : 'This browser has no AAC encoder, so the sound was handed to ffmpeg.');
+      }
+    } else {
+      const saved = await upload(`out/${plan.name}.wav`, wav());
+      result.files.push({ kind: 'soundtrack', ...saved });
+      sound = { mode: 'none' };
+      result.notes.push(
+        'The MP4 has no sound: this browser cannot encode AAC and ffmpeg is not installed. The soundtrack was saved as a WAV file next to the video. Install ffmpeg and run again.',
+      );
+    }
+    result.sound = {
+      encoder: sound.mode,
+      voiceLines: mix.info.voiceLines,
+      voiceSeconds: mix.info.voiceSeconds,
+      effects: mix.info.effects,
+      music: mix.info.music,
+      lufs: Number.isFinite(mix.info.lufs) ? Math.round(mix.info.lufs * 10) / 10 : null,
+      peak: Math.round(mix.info.peak * 1000) / 1000,
+    };
   }
 
   // ---- GIF setup: look at frames across the whole video to choose one palette for all of it.
@@ -268,8 +309,14 @@ window.__demoreelRender = async () => {
     if (muxer.samples.length !== frameCount) {
       result.notes.push(`The encoder returned ${muxer.samples.length} of ${frameCount} frames.`);
     }
+    if (sound?.mode === 'browser') {
+      muxer.setAudioConfig({ description: sound.aac.description, sampleRate: plan.audio.sampleRate, channels: 2, bitrate: plan.audio.bitrate });
+      for (const packet of sound.aac.packets) muxer.addAudioSample(packet.data, packet.frames);
+      muxer.setAudioTrim(sound.aac.delay, sound.length);
+    }
     report({ phase: 'save', file: 'mp4' });
-    const saved = await upload(`out/${plan.name}.mp4`, new Blob(muxer.finalize(), { type: 'video/mp4' }));
+    let saved = await upload(`out/${plan.name}.mp4`, new Blob(muxer.finalize(), { type: 'video/mp4' }));
+    if (sound?.mode === 'ffmpeg') saved = await upload('sink/mux', '');
     result.files.push({ kind: 'mp4', ...saved });
   } else if (useSink) {
     const saved = await upload('sink/end', '');

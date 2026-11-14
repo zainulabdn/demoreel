@@ -9,8 +9,16 @@ import { launchChrome } from './chrome.mjs';
 import { DEFAULT_HIDE, NULL_TAPE, Page } from './page.mjs';
 import { startCommand, startStaticServer } from './serve.mjs';
 import { DemoreelError, frameName, hashString, seededRandom, sleep } from './util.mjs';
+import { measureClips } from './voice.mjs';
 
 const round1 = (value) => Math.round(value * 10) / 10;
+
+/** A spoken line starts this long after its caption appears, so the eye gets there first. */
+const VOICE_LEAD = 80;
+/** The shortest silence between two spoken lines. */
+const VOICE_GAP = 280;
+/** How long the video runs on after the last word. */
+const VOICE_TAIL = 700;
 
 /** Collects everything that happens during a recording, on one clock (ms since the first frame). */
 export class Tape {
@@ -27,6 +35,8 @@ export class Tape {
     this.focus = [];
     this.wide = [];
     this.captions = [];
+    this.keys = [];
+    this.voice = [];
     this.urls = [];
     this.steps = [];
     this.writes = [];
@@ -59,6 +69,16 @@ export class Tape {
 
   click(x, y) {
     this.clicks.push({ t: this.now(), x: round1(x), y: round1(y) });
+  }
+
+  /** A key going down, for the typing sounds. `kind` is "char", "space", "enter" or "key". */
+  key(kind) {
+    this.keys.push({ t: this.now(), kind });
+  }
+
+  /** A spoken line starting at `entry.t`. See runStep's "say" for what an entry holds. */
+  speak(entry) {
+    this.voice.push(entry);
   }
 
   /** A moment the camera should look at: a click, some typing, a hover or an explicit zoom. */
@@ -102,6 +122,8 @@ export class Tape {
       focus: this.focus,
       wide: this.wide,
       captions: this.captions,
+      keys: this.keys,
+      voice: this.voice,
       urls: this.urls,
       steps: this.steps,
     };
@@ -257,10 +279,25 @@ async function runStep(step, page, tape, context) {
       await page.locate(step.target, { nth: step.nth, timeout: step.timeout ?? 15000, mode: 'click', action: 'wait for' });
       return 'done';
 
-    case 'say':
-      tape.say(step.text, step.duration);
-      await page.wait(step.text ? 380 : 0);
+    case 'say': {
+      const clip = context.voice?.get(step.index);
+      if (!clip) {
+        tape.say(step.text, step.duration);
+        await page.wait(step.text ? 380 : 0);
+        return 'done';
+      }
+      // One voice at a time: the line before this one finishes first.
+      const waited = Math.max(0, Math.round(context.voiceEnd + VOICE_GAP - tape.now()));
+      await sleep(waited);
+      // A caption with a time limit still stays up while its line is being spoken.
+      tape.say(step.text, step.duration ? Math.max(step.duration, clip.duration + 250) : undefined);
+      const t = tape.now() + VOICE_LEAD;
+      // "waited" is how long this line was held back, which tells the author the line before it is too long for its beat.
+      tape.speak({ t, step: step.index, file: clip.file, skip: clip.skip, duration: clip.duration, text: clip.text, ...(waited > 50 ? { waited } : {}) });
+      context.voiceEnd = t + clip.duration;
+      await page.wait(380);
       return 'done';
+    }
 
     case 'select': {
       let found = await page.locate(step.target, { ...options, mode: 'edit', action: 'select from' });
@@ -367,9 +404,10 @@ export async function startApp(storyboard) {
  * @param {object} options
  * @param {'record'|'check'} options.mode  "check" runs the steps fast and saves a screenshot after each
  * @param {string} options.workDir  where frames, timeline or check screenshots are written
+ * @param {Map<number, object>} [options.voice]  spoken lines by step number, from prepareVoice
  * @param {(event: object) => void} [options.onStep]
  */
-export async function runStoryboard(storyboard, { mode = 'record', workDir, chromePath, headed = false, onStep = () => {} }) {
+export async function runStoryboard(storyboard, { mode = 'record', workDir, chromePath, headed = false, voice = null, onStep = () => {} }) {
   mkdirSync(workDir, { recursive: true });
   const checking = mode === 'check';
   const app = await startApp(storyboard);
@@ -385,6 +423,9 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
     });
     const seed = storyboard.seed ?? hashString(JSON.stringify(storyboard.steps.map((s) => s.label)));
     const tape = checking ? null : new Tape(workDir);
+    // How long each spoken line is decides the pace, so the clips are measured before anything is filmed.
+    const speaking = tape && voice?.size ? await measureClips(browser.connection, workDir, voice) : null;
+    const context = { baseUrl: app.baseUrl, voice: speaking, voiceEnd: -Infinity };
     const page = await Page.open(browser.connection, {
       width: storyboard.viewport.width,
       height: storyboard.viewport.height,
@@ -439,7 +480,7 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
       onStep({ type: 'start', step });
       let status;
       try {
-        status = await runStep(step, page, tape || NULL_TAPE, { baseUrl: app.baseUrl });
+        status = await runStep(step, page, tape || NULL_TAPE, context);
       } catch (error) {
         let screenshot = null;
         try {
@@ -483,6 +524,8 @@ export async function runStoryboard(storyboard, { mode = 'record', workDir, chro
     let timeline = null;
     if (tape) {
       await page.wait(1300);
+      // Never cut off the last spoken line.
+      await sleep(context.voiceEnd + VOICE_TAIL - tape.now());
       await session.send('Page.stopScreencast').catch(() => {});
       timeline = await tape.finish(storyboard.viewport, storyboard.scale);
       if (timeline.frames.length < 2) {

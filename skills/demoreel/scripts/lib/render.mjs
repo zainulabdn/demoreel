@@ -4,17 +4,18 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchChrome } from './chrome.mjs';
 import { buildPlan } from './plan.mjs';
 import { MIME, listen, resolveInside } from './serve.mjs';
+import { subtitleCues, toSrt } from './sound.mjs';
 import { DemoreelError } from './util.mjs';
 
 const ASSETS_DIR = fileURLToPath(new URL('../../assets/', import.meta.url));
-const STAGE_FILES = new Set(['stage.html', 'stage.js', 'scene.js', 'mp4.js', 'gif.js']);
+const STAGE_FILES = new Set(['stage.html', 'stage.js', 'scene.js', 'mp4.js', 'gif.js', 'audio.js', 'soundtrack.js']);
 
 export function hasFfmpeg() {
   try {
@@ -48,10 +49,18 @@ export async function renderRecording({ recordingDir, timeline, storyboard, chro
   const plan = buildPlan(timeline, storyboard);
   const ffmpegAvailable = storyboard.output.formats.includes('mp4') && hasFfmpeg();
   plan.encode.sink = ffmpegAvailable;
+  // DEMOREEL_VIDEO_ENCODER=ffmpeg and DEMOREEL_AUDIO_ENCODER=ffmpeg skip the browser's own
+  // encoders, for a machine where one of them misbehaves.
+  plan.encode.videoEncoder = process.env.DEMOREEL_VIDEO_ENCODER === 'ffmpeg' && ffmpegAvailable ? 'ffmpeg' : 'auto';
+  plan.encode.audioEncoder = process.env.DEMOREEL_AUDIO_ENCODER === 'ffmpeg' ? 'ffmpeg' : 'auto';
   writeFileSync(join(recordingDir, 'plan.json'), JSON.stringify(plan));
 
   const token = randomBytes(12).toString('hex');
-  const allowedOutputs = new Set([`${plan.name}.mp4`, `${plan.name}.gif`, `${plan.name}.poster.png`, `${plan.name}.sheet.png`]);
+  const allowedOutputs = new Set([`${plan.name}.mp4`, `${plan.name}.gif`, `${plan.name}.poster.png`, `${plan.name}.sheet.png`, `${plan.name}.wav`]);
+  // When the browser cannot encode AAC, the mixed soundtrack is saved here for ffmpeg to add.
+  const soundtrack = join(recordingDir, 'soundtrack.wav');
+  rmSync(soundtrack, { force: true });
+  const audioArgs = () => (plan.audio && existsSync(soundtrack) ? ['-c:a', 'aac', '-b:a', String(plan.audio.bitrate)] : []);
   let ffmpeg = null;
   let ffmpegError = '';
 
@@ -67,7 +76,45 @@ export async function renderRecording({ recordingDir, timeline, storyboard, chro
       if (STAGE_FILES.has(path)) return sendFile(res, join(ASSETS_DIR, path));
       if (path === 'plan.json') return sendFile(res, join(recordingDir, 'plan.json'));
       if (path.startsWith('frames/')) return sendFile(res, resolveInside(join(recordingDir, 'frames'), path.slice('frames/'.length)));
+      if (path.startsWith('audio/')) return sendFile(res, resolveInside(join(recordingDir, 'audio'), path.slice('audio/'.length)));
+      if (path === 'music') return sendFile(res, storyboard.sound?.music?.file);
       res.writeHead(404).end('Not found');
+      return;
+    }
+
+    if (req.method === 'POST' && path === 'sink/audio') {
+      const stream = createWriteStream(soundtrack);
+      req.pipe(stream);
+      stream.on('finish', () => res.writeHead(200, { 'content-type': 'application/json' }).end('{}'));
+      stream.on('error', (error) => res.writeHead(500).end(String(error.message)));
+      return;
+    }
+
+    // The browser wrote the video; ffmpeg adds the soundtrack to it without touching the picture.
+    if (req.method === 'POST' && path === 'sink/mux') {
+      req.resume();
+      const file = join(outDir, `${plan.name}.mp4`);
+      const withSound = join(recordingDir, 'with-sound.mp4');
+      let muxError = '';
+      const mux = spawn(
+        'ffmpeg',
+        ['-y', '-loglevel', 'error', '-i', file, '-i', soundtrack, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', ...audioArgs(), '-movflags', '+faststart', withSound],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      );
+      mux.stderr.on('data', (data) => {
+        muxError = (muxError + data).slice(-2000);
+      });
+      mux.once('error', (error) => res.writeHead(500).end(`ffmpeg could not start: ${error.message}`));
+      mux.once('exit', (code) => {
+        if (code !== 0) {
+          res.writeHead(500).end(`ffmpeg failed: ${muxError}`);
+          return;
+        }
+        rmSync(file, { force: true });
+        renameSync(withSound, file);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ path: file, bytes: statSync(file).size }));
+      });
       return;
     }
 
@@ -94,7 +141,8 @@ export async function renderRecording({ recordingDir, timeline, storyboard, chro
         ffmpeg = spawn(
           'ffmpeg',
           ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(plan.fps), '-i', '-',
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', file],
+            ...(audioArgs().length ? ['-i', soundtrack] : []),
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', ...audioArgs(), '-movflags', '+faststart', file],
           { stdio: ['pipe', 'ignore', 'pipe'] },
         );
         ffmpeg.stderr.on('data', (data) => {
@@ -184,6 +232,16 @@ export async function renderRecording({ recordingDir, timeline, storyboard, chro
         );
       }
       throw new DemoreelError(`Rendering failed: ${result?.message || 'unknown error'}`);
+    }
+    if (storyboard.output.formats.includes('srt')) {
+      const cues = subtitleCues(timeline);
+      if (cues.length) {
+        const file = join(outDir, `${plan.name}.srt`);
+        writeFileSync(file, toSrt(cues));
+        result.files.push({ kind: 'srt', path: file, bytes: statSync(file).size, lines: cues.length });
+      } else {
+        result.notes.push('No subtitle file was written: the video has no captions or spoken lines.');
+      }
     }
     return { ...result, plan, browser: browser.product };
   } finally {

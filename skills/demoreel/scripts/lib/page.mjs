@@ -102,8 +102,10 @@ export const NULL_TAPE = {
   cursor() {},
   cursorKind() {},
   click() {},
+  key() {},
   scroll() {},
   say() {},
+  speak() {},
   addFocus() {},
   addWide() {},
 };
@@ -405,6 +407,7 @@ export class Page {
       nativeVirtualKeyCode: key.vk,
       modifiers: key.modifiers,
     };
+    this.tape.key(key.key === 'Enter' ? 'enter' : key.key === ' ' ? 'space' : 'key');
     await this.session.send('Input.dispatchKeyEvent', {
       ...base,
       type: key.text ? 'keyDown' : 'rawKeyDown',
@@ -417,6 +420,7 @@ export class Page {
   /** Type text one character at a time with a slightly uneven, human rhythm. */
   async typeText(text, { speed = 1 } = {}) {
     for (const char of text) {
+      if (char !== '\n') this.tape.key(char === ' ' ? 'space' : 'char');
       if (char === '\n') {
         await this.pressKey('Enter');
       } else if (char.length === 1 && char >= ' ' && char <= '~') {

@@ -4,6 +4,7 @@
 
 import { buildShots, sampleCamera } from './camera.mjs';
 import { cursorAt } from './cursorpath.mjs';
+import { buildAudioPlan } from './sound.mjs';
 import { clamp } from './util.mjs';
 
 const KIND_INDEX = { default: 0, pointer: 1, text: 2, grab: 3 };
@@ -72,14 +73,16 @@ export function displayUrl(url, override) {
  * Target bitrate for the MP4. Interface video is mostly still, so it needs far fewer bits than
  * camera footage; the presets were chosen by comparing zoomed text at each level. When
  * `maxMB` is set, the target is lowered so the finished file stays under that size
- * (GitHub accepts videos up to 10 MB on free accounts).
+ * (GitHub accepts videos up to 10 MB on free accounts). A sound track takes its share of
+ * that size first.
+ * @param {number} [audioBitrate]  bits per second used by the sound track, if there is one
  * @returns {{bitrate:number, capped:boolean}}
  */
-export function bitrateFor(output, durationMs) {
+export function bitrateFor(output, durationMs, audioBitrate = 0) {
   const bitsPerPixel = { high: 0.07, medium: 0.045, small: 0.028 }[output.quality] ?? 0.07;
   const preset = clamp(bitsPerPixel * output.width * output.height * output.fps, 600_000, 40_000_000);
   if (!output.maxMB) return { bitrate: Math.round(preset), capped: false };
-  const budget = (output.maxMB * 8_000_000 * 0.9) / Math.max(1, durationMs / 1000);
+  const budget = (output.maxMB * 8_000_000 * 0.9) / Math.max(1, durationMs / 1000) - audioBitrate;
   const bitrate = Math.max(600_000, Math.min(preset, budget));
   return { bitrate: Math.round(bitrate), capped: bitrate < preset };
 }
@@ -162,7 +165,9 @@ export function buildPlan(timeline, storyboard) {
   const hasCaptions = (timeline.captions || []).length > 0;
   const layout = computeLayout(output, viewport, style, hasCaptions);
 
-  const rate = bitrateFor(output, timeline.duration);
+  const durationMs = Math.round((frameCount * 1000) / fps);
+  const audio = buildAudioPlan(timeline, storyboard, durationMs);
+  const rate = bitrateFor(output, timeline.duration, audio ? audio.bitrate : 0);
   const shots = buildShots(timeline, style);
   const camera = sampleCamera(shots, viewport, frameCount, fps);
 
@@ -217,7 +222,7 @@ export function buildPlan(timeline, storyboard) {
     name: storyboard.name,
     fps,
     frameCount,
-    durationMs: Math.round((frameCount * 1000) / fps),
+    durationMs,
     viewport,
     layout,
     style: {
@@ -235,6 +240,7 @@ export function buildPlan(timeline, storyboard) {
     captions: timeline.captions || [],
     urls: (timeline.urls || []).map((entry) => ({ t: entry.t, text: displayUrl(entry.url, storyboard.displayUrl) })),
     shots,
+    audio,
     sheet: sheetMoments(timeline, frameCount, fps),
     posterFrame: clamp(Math.round(frameCount * 0.45), 0, frameCount - 1),
     encode: {

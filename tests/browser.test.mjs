@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, test } from 'node:test';
@@ -269,6 +269,62 @@ describe('recording the example app end to end', { skip }, () => {
       assert.ok(statSync(join(outDir, name)).size > 20_000);
     }
     assert.equal(png1080(readFileSync(join(outDir, 'demo.poster.png'))), '1920x1080');
+  });
+
+  test('record with sound: spoken lines set the pace, and the MP4 gets a sound track', (t) => {
+    if (!canMakeMp4) return t.skip('sound needs an MP4, which this machine cannot make');
+    // A stand-in voice that works on every system: a tone that lasts longer for longer text.
+    const speak = join(ROOT, 'tests/fixtures/speak.mjs');
+    const long = 'A new project takes a few seconds, and this sentence is long.';
+    const story = join(outDir, 'narrated.reel.json');
+    writeFileSync(
+      story,
+      JSON.stringify({
+        serve: join(ROOT, 'examples/lumen'),
+        sound: { voice: { command: `'${process.execPath}' '${speak}' {out}` } },
+        output: { formats: ['mp4', 'srt'], size: '720p' },
+        steps: [
+          { say: 'Start a project in seconds', speak: long },
+          { say: 'Second line right away' },
+          { click: 'New project' },
+          { type: 'Hi', into: 'Project name' },
+        ],
+      }),
+    );
+    const result = run(['record', story, '--out', outDir, '--keep', '--json']);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    after(() => rmSync(report.recording, { recursive: true, force: true }));
+    assert.equal(report.voice.lines.length, 2);
+    assert.equal(report.voice.lines[0].text, long);
+    assert.ok(report.voice.lines[1].heldBackMs > 1000, 'the report says the second line had to wait for the first');
+    assert.equal(report.sound.voiceLines, 2);
+    assert.ok(report.sound.effects >= 3, 'a click and two typed letters at least');
+
+    // The recording waited for the voice: the second line starts after the first has finished,
+    // and the video does not end in the middle of the last one.
+    const timeline = JSON.parse(readFileSync(join(report.recording, 'timeline.json'), 'utf8'));
+    const [first, second] = timeline.voice;
+    const spokenFor = (text) => (0.3 + text.length * 0.04) * 1000;
+    assert.ok(Math.abs(first.duration - spokenFor(long)) < 200, `first line measured as ${first.duration} ms`);
+    assert.ok(first.skip > 150 && first.skip <= 200, `the silence the voice adds before speaking is skipped (${first.skip} ms)`);
+    assert.ok(second.t >= first.t + first.duration + 250, 'one voice at a time');
+    assert.ok(timeline.duration >= second.t + second.duration + 600, 'the last line is not cut off');
+    assert.ok(timeline.keys.length >= 2 && timeline.clicks.length >= 1);
+
+    const srt = readFileSync(join(outDir, 'narrated.srt'), 'utf8');
+    assert.match(srt, new RegExp(`^1\\n00:00:0\\d,\\d{3} --> 00:00:0\\d,\\d{3}\\n${long}\\n\\n2\\n`));
+    assert.match(srt, /Second line right away\n$/);
+
+    const mp4 = readFileSync(join(outDir, 'narrated.mp4'));
+    if (report.sound.encoder === 'none') {
+      // No AAC encoder in this browser and no ffmpeg: the soundtrack is saved beside a silent video.
+      assert.ok(report.files.some((file) => file.kind === 'soundtrack'));
+      assert.equal(readFileSync(join(outDir, 'narrated.wav')).toString('latin1', 0, 4), 'RIFF');
+    } else {
+      assert.ok(mp4.includes(Buffer.from('soun')), 'the MP4 has a sound track');
+      assert.ok(mp4.includes(Buffer.from('mp4a')), 'encoded as AAC');
+    }
   });
 });
 

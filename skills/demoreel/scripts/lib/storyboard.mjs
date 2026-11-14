@@ -2,7 +2,7 @@
 // fully-specified, validated plan. Every mistake gets a message that says which
 // step is wrong and how to fix it, because the usual author is an AI agent.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { DemoreelError } from './util.mjs';
 
@@ -25,7 +25,9 @@ export const SIZES = {
 };
 
 export const FRAMES = ['browser', 'window', 'phone', 'none'];
-export const FORMATS = ['mp4', 'gif'];
+export const FORMATS = ['mp4', 'gif', 'srt'];
+/** Voices that speak the captions: the natural one (after "voice install"), the computer's own, or the best there is. */
+export const VOICE_ENGINES = ['auto', 'natural', 'system'];
 
 /** The one key in each step that says what the step does. */
 export const ACTIONS = [
@@ -41,7 +43,7 @@ const STEP_OPTIONS = {
   scroll: ['nth', 'timeout'],
   wait: [],
   waitFor: ['nth', 'timeout'],
-  say: ['for'],
+  say: ['for', 'speak', 'audio'],
   select: ['in', 'nth', 'zoom', 'timeout'],
   drag: ['to', 'nth', 'timeout'],
   zoom: ['nth', 'timeout', 'level'],
@@ -161,6 +163,15 @@ function normalizeStep(raw, index) {
       if (typeof value !== 'string') fail(`${where}: "say" needs caption text (or "" to clear the caption).`);
       step.text = value.trim();
       if ('for' in raw) step.duration = checkNumber(raw.for, `${where}: for`, { min: 200, max: 60000 });
+      if ('speak' in raw) {
+        if (raw.speak === false) step.speak = false;
+        else if (typeof raw.speak === 'string' && raw.speak.trim()) step.speak = raw.speak.trim();
+        else fail(`${where}: "speak" needs the words to say out loud, or false to keep this caption silent.`);
+      }
+      if ('audio' in raw) {
+        if (step.speak === false) fail(`${where} has both "audio" and "speak": false.`, 'Remove one of them.');
+        step.audio = needText(raw.audio, 'audio');
+      }
       break;
     case 'select':
       step.option = needText(value);
@@ -194,10 +205,106 @@ function normalizeStep(raw, index) {
   // The label is made from the text as written, so secrets from ${env:...} never reach logs,
   // the contact sheet or the saved timeline. Only then are the real values filled in.
   step.label = describeStep(step);
-  for (const key of ['text', 'url', 'code']) {
+  for (const key of ['text', 'url', 'code', 'speak']) {
     if (typeof step[key] === 'string') step[key] = expandEnv(step[key], where);
   }
   return step;
+}
+
+function normalizeVoice(raw) {
+  const voice = { engine: 'auto', name: null, speed: 1, command: null };
+  const engineOf = (value) => {
+    const engine = value === 'kokoro' ? 'natural' : value;
+    if (!VOICE_ENGINES.includes(engine)) {
+      fail(`Unknown voice "${value}".`, `Use true, or one of: ${VOICE_ENGINES.join(', ')}, or { "engine", "name", "speed" }.`);
+    }
+    return engine;
+  };
+  if (raw === undefined || raw === false || raw === null) return null;
+  if (raw === true) return voice;
+  if (typeof raw === 'string') return { ...voice, engine: engineOf(raw) };
+  if (!isObject(raw)) fail('"sound.voice" must be true, a voice engine name, or an object.');
+  const known = ['engine', 'name', 'speed', 'command'];
+  for (const key of Object.keys(raw)) {
+    if (!known.includes(key)) fail(`"sound.voice.${key}" is not a voice option.`, `Voice options: ${known.join(', ')}.`);
+  }
+  if ('command' in raw) {
+    if (typeof raw.command !== 'string' || !raw.command.includes('{out}')) {
+      fail('"sound.voice.command" must be a command that writes a sound file to {out}.', 'For example: "piper --model en.onnx --output_file {out}". The words arrive on standard input, or where you write {text}.');
+    }
+    if ('engine' in raw && raw.engine !== 'command') fail('"sound.voice" has both "command" and "engine".', 'Remove one of them.');
+    voice.engine = 'command';
+    voice.command = raw.command;
+  } else if ('engine' in raw) {
+    voice.engine = engineOf(raw.engine);
+  }
+  if ('name' in raw) {
+    if (typeof raw.name !== 'string' || !raw.name.trim()) fail('"sound.voice.name" must be the name of a voice.', 'Run "demoreel voice" to see the names.');
+    voice.name = raw.name.trim();
+  }
+  if ('speed' in raw) voice.speed = checkNumber(raw.speed, 'sound.voice.speed', { min: 0.5, max: 2 });
+  return voice;
+}
+
+/** A volume setting: true is the designed level, false is off, a number scales it. */
+function normalizeVolume(raw, name, fallback) {
+  if (raw === undefined) return fallback;
+  if (raw === true) return 1;
+  if (raw === false) return 0;
+  if (isObject(raw)) return 'volume' in raw ? checkNumber(raw.volume, `${name}.volume`, { min: 0, max: 3 }) : 1;
+  return checkNumber(raw, name, { min: 0, max: 3 });
+}
+
+/** Resolve a sound file named in the storyboard, and say so plainly if it is not there. */
+function soundFile(path, name, dir) {
+  const file = resolve(dir, path);
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    fail(`${name} points to ${path}, which does not exist.`, `Looked for ${file}. Paths are relative to the storyboard file.`);
+  }
+  return file;
+}
+
+/**
+ * The "sound" option: a voice that speaks the captions, click and typing sounds, and music.
+ * Returns null when the video is silent.
+ */
+function normalizeSound(raw, dir, steps) {
+  const clips = steps.some((step) => step.audio);
+  // A storyboard that gives a recorded clip for a caption wants sound, even if it does not say so.
+  if (raw === undefined && clips) raw = {};
+  if (raw === undefined || raw === false || raw === null) return null;
+  if (raw === true) raw = { voice: true };
+  if (!isObject(raw)) fail('"sound" must be true or an object such as { "voice": true, "music": "./music.mp3" }.');
+  const known = ['voice', 'effects', 'music', 'pronounce'];
+  for (const key of Object.keys(raw)) {
+    if (!known.includes(key)) fail(`"sound.${key}" is not a sound option.`, `Sound options: ${known.join(', ')}.`);
+  }
+
+  let music = null;
+  if (typeof raw.music === 'string') music = { file: soundFile(raw.music, '"sound.music"', dir), volume: 1 };
+  else if (isObject(raw.music)) {
+    if (typeof raw.music.file !== 'string') fail('"sound.music" needs a "file", for example { "file": "./music.mp3", "volume": 0.8 }.');
+    music = { file: soundFile(raw.music.file, '"sound.music.file"', dir), volume: normalizeVolume(raw.music.volume, 'sound.music.volume', 1) };
+  } else if (raw.music !== undefined && raw.music !== false && raw.music !== null) {
+    fail('"sound.music" must be the path of a sound file, or { "file", "volume" }.');
+  }
+  if (music && music.volume === 0) music = null;
+
+  const pronounce = {};
+  if (raw.pronounce !== undefined) {
+    if (!isObject(raw.pronounce) || Object.entries(raw.pronounce).some(([word, spoken]) => !word.trim() || typeof spoken !== 'string' || !spoken.trim())) {
+      fail('"sound.pronounce" must map words to how they are said, for example { "Demoreel": "Demo reel" }.');
+    }
+    for (const [word, spoken] of Object.entries(raw.pronounce)) pronounce[word.trim()] = spoken.trim();
+  }
+
+  const sound = {
+    voice: normalizeVoice(raw.voice),
+    effects: normalizeVolume(raw.effects, 'sound.effects', 1),
+    music,
+    pronounce,
+  };
+  return sound.voice || sound.effects > 0 || sound.music || clips ? sound : null;
 }
 
 function normalizeViewport(raw) {
@@ -315,7 +422,7 @@ function normalizeStyle(raw = {}, viewport) {
  */
 export function normalizeStoryboard(raw, filePath = 'demo.reel.json') {
   if (!isObject(raw)) fail('The storyboard must be a JSON object with "url" and "steps".');
-  const known = ['$schema', 'name', 'url', 'serve', 'start', 'viewport', 'scale', 'theme', 'pace', 'hide', 'displayUrl', 'output', 'style', 'steps', 'seed'];
+  const known = ['$schema', 'name', 'url', 'serve', 'start', 'viewport', 'scale', 'theme', 'pace', 'hide', 'displayUrl', 'output', 'style', 'sound', 'steps', 'seed'];
   for (const key of Object.keys(raw)) {
     if (!known.includes(key)) fail(`"${key}" is not a storyboard option.`, `Top-level options: ${known.filter((k) => k !== '$schema').join(', ')}.`);
   }
@@ -345,6 +452,22 @@ export function normalizeStoryboard(raw, filePath = 'demo.reel.json') {
     fail('The storyboard needs a "steps" list with at least one step.');
   }
   const steps = raw.steps.map(normalizeStep);
+  for (const step of steps) {
+    if (step.audio) step.audio = soundFile(step.audio, `Step ${step.index + 1}: "audio"`, dir);
+  }
+  const sound = normalizeSound(raw.sound, dir, steps);
+  // Which captions are spoken, and with which words: a recorded clip, the "speak" text, or the caption itself.
+  for (const step of steps) {
+    if (step.action !== 'say') continue;
+    const words = step.speak === false ? '' : step.speak || step.text;
+    if (sound && (step.audio || (sound.voice && words))) step.spoken = words || step.text;
+    else if (typeof step.speak === 'string' || step.audio) {
+      fail(
+        `Step ${step.index + 1} has "${step.audio ? 'audio' : 'speak'}", but the storyboard has no voice.`,
+        'Add "sound": { "voice": true } at the top level, or remove it from the step.',
+      );
+    }
+  }
 
   const viewport = normalizeViewport(raw.viewport);
   const scale = raw.scale !== undefined ? checkNumber(raw.scale, 'scale', { min: 1, max: 4 }) : viewport.scale ?? 2;
@@ -371,6 +494,7 @@ export function normalizeStoryboard(raw, filePath = 'demo.reel.json') {
     seed: typeof raw.seed === 'number' ? raw.seed : null,
     output: normalizeOutput(raw.output, dir),
     style: normalizeStyle(raw.style, viewport),
+    sound,
     steps,
     hasCaptions: steps.some((step) => step.action === 'say' && step.text),
   };
