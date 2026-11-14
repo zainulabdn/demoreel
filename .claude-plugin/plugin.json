@@ -1,8 +1,8 @@
 {
   "name": "demoreel",
   "displayName": "Demoreel",
-  "version": "0.1.0",
-  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions, MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
+  "version": "0.2.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions and an optional voice-over, as MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
   "author": {
     "name": "Zain Ul Abideen",
     "url": "https://github.com/zainulabdn"

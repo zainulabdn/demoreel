@@ -1,7 +1,7 @@
 {
   "name": "demoreel",
-  "version": "0.1.0",
-  "description": "A polished demo video of your real web app, recorded by your coding agent. Zero dependencies: just Node and the Chrome you already have.",
+  "version": "0.2.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent, with an optional voice-over. Zero dependencies: just Node and the Chrome you already have.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -27,6 +27,7 @@
     "claude-code",
     "codex",
     "product-demo",
+    "voice-over",
     "gif",
     "mp4"
   ],

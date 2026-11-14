@@ -1,7 +1,7 @@
 {
   "name": "demoreel",
-  "version": "0.1.0",
-  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions, MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
+  "version": "0.2.0",
+  "description": "A polished demo video of your real web app, recorded by your coding agent: smooth cursor, automatic zoom, captions and an optional voice-over, as MP4 and GIF. Zero dependencies, just Node and the Chrome you already have.",
   "author": {
     "name": "Zain Ul Abideen",
     "url": "https://github.com/zainulabdn"
@@ -23,7 +23,7 @@
   "interface": {
     "displayName": "Demoreel",
     "shortDescription": "Record a demo video of your real app",
-    "longDescription": "Codex writes a short storyboard of plain-language steps, then Demoreel drives your real web app in a headless browser and renders a polished demo video: smooth cursor, automatic zoom on each action, captions, a browser or phone frame and a designed background. It exports MP4 and GIF, plus a contact sheet Codex reads to check its own video. Everything runs on your machine with no dependencies beyond Node and a Chromium-based browser.",
+    "longDescription": "Codex writes a short storyboard of plain-language steps, then Demoreel drives your real web app in a headless browser and renders a polished demo video: smooth cursor, automatic zoom on each action, captions, a browser or phone frame and a designed background. It can add a spoken voice-over, click and typing sounds and music. It exports MP4 and GIF, plus a contact sheet Codex reads to check its own video. Everything runs on your machine with no dependencies beyond Node and a Chromium-based browser.",
     "developerName": "Zain Ul Abideen",
     "category": "Developer Tools",
     "capabilities": [
@@ -34,7 +34,7 @@
     "defaultPrompt": [
       "Make a demo video of this app",
       "Record a GIF of the checkout flow for the README",
-      "Make a vertical demo video of the mobile layout"
+      "Make a narrated demo video with a voice-over"
     ],
     "brandColor": "#6D4AFF",
     "screenshots": [],

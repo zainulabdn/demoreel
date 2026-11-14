@@ -11,7 +11,7 @@ Ask Claude Code or Codex for a demo of your app. It writes a short storyboard, d
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757?style=flat-square)](#install)
 [![Codex plugin](https://img.shields.io/badge/Codex-plugin-111?style=flat-square)](#install)
 [![Tests](https://img.shields.io/github/actions/workflow/status/zainulabdn/demoreel/test.yml?branch=main&style=flat-square&label=tests)](https://github.com/zainulabdn/demoreel/actions/workflows/test.yml)
-[![Version](https://img.shields.io/badge/version-0.1.0-111?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-111?style=flat-square)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 [![Node 20+](https://img.shields.io/badge/node-%E2%89%A520-111?style=flat-square)](https://nodejs.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-111?style=flat-square)](#how-it-works)

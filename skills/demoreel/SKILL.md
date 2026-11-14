@@ -4,7 +4,7 @@ description: "Record a polished demo video (MP4 and GIF) of a real, running web 
 license: MIT
 compatibility: "Needs Node.js 20 or newer and a Chromium-based browser (Google Chrome, Microsoft Edge or Brave). No other dependencies and nothing to install. The natural voice for voice-overs is an optional one-time download that needs Python 3.10 to 3.13."
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 allowed-tools:
   - Bash(node ${CLAUDE_SKILL_DIR}/scripts/demoreel.mjs *)
 ---
