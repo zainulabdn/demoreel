@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with `doctor`. It reports whether Node, the browser and video encoding are usable on this machine:
+Start with `doctor`. It reports whether Node, the browser, video and sound encoding and the voices are usable on this machine:
 
 ```
 node <skill>/scripts/demoreel.mjs doctor
@@ -55,6 +55,24 @@ node <skill>/scripts/demoreel.mjs doctor
 | The browser bar shows `127.0.0.1:49152` | Set `"displayUrl": "yourproduct.com"`. |
 | Fonts look different from your own browser | The headless browser uses the fonts installed on this machine. Web fonts load as usual; wait for them with `{ "wait": 500 }` at the start if the first frame shows fallback fonts. |
 
+## Sound
+
+| Message or symptom | Cause | Fix |
+|---|---|---|
+| `The natural voice is not installed on this computer.` | The storyboard asks for `"voice": "natural"`. | Run `demoreel voice install` once (ask the user first: it downloads about 400 MB), or use `"voice": "system"`. |
+| Note: `The computer's built-in voice was used, which sounds like a computer.` | `"voice": true` found no natural voice. | The video is fine to check for timing. For the final version, suggest `demoreel voice install` to the user. |
+| `The natural voice needs Python 3.10 to 3.13, which was not found.` | `voice install` needs one of those Python versions. | Install one (on a Mac: `brew install python@3.13`), or set `DEMOREEL_PYTHON` to its path. |
+| `This computer has no built-in voice.` | Linux without a speech program. | `sudo apt install espeak-ng`, or install the natural voice. |
+| `There is no voice called "X".` / `This Mac has no voice called "X".` | The `name` is not a voice on this machine. | Run `demoreel voice` and use a name from the list. |
+| `Step N has "speak", but the storyboard has no voice.` | A caption has words to say, and nothing to say them with. | Add `"sound": { "voice": true }` at the top level. |
+| `Could not read the sound file for the spoken line for step N.` | An `audio` clip is not a sound file the browser can read. | Use WAV, MP3 or M4A. |
+| Note: `The MP4 has no sound: this browser cannot encode AAC and ffmpeg is not installed.` | Common on Linux. The soundtrack was saved next to the video as a WAV file. | Install ffmpeg and run again. |
+| The voice says a name wrong | The voice reads it letter by letter or guesses. | `"pronounce": { "Demoreel": "Demo reel" }`. Try spellings with `voice try`. |
+| The video got much longer with a voice | The recording waits for each spoken line. | Shorten the lines in `speak`, or drop a caption. |
+| A line is spoken after its action is over | The `say` step comes after the steps it describes. | Move the `say` step before them. |
+| Music drowns the voice, or cannot be heard | Tracks differ a lot. | `"music": { "file": "...", "volume": 0.5 }`, or a value above `1` to raise it. |
+| Sound and picture drift apart, or the sound is garbled | The browser's own encoder misbehaves on this machine. | Set `DEMOREEL_AUDIO_ENCODER=ffmpeg` (or `DEMOREEL_VIDEO_ENCODER=ffmpeg` for the picture) and run again. Needs ffmpeg. |
+
 ## Changing the look without recording again
 
 Record once with `--keep`, then re-render with a different style in a few seconds:
@@ -65,12 +83,12 @@ node <skill>/scripts/demoreel.mjs record demo.reel.json --keep
 node <skill>/scripts/demoreel.mjs render <recording dir printed above> --storyboard demo.reel.json
 ```
 
-Only `style`, `output`, `name` and `displayUrl` are taken from the storyboard when re-rendering. Changes to steps need a new recording.
+Only `style`, `output`, `sound`, `name` and `displayUrl` are taken from the storyboard when re-rendering. Music and click sounds can be changed this way. Changes to steps, or to what is spoken, need a new recording.
 
 ## Limits
 
 - Web apps only: anything that runs in a Chromium browser.
-- No audio track.
+- Sound is in the MP4 only. The natural voice speaks English.
 - Links that open a new tab are not followed. Remove `target="_blank"` with an `eval` step if you need to follow one.
 - Content inside iframes cannot be targeted.
 - No file uploads.

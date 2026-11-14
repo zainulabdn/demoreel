@@ -32,6 +32,18 @@ Captions carry the pitch, because most people watch without sound.
 - Put the `say` step just before the action it describes, so the viewer reads first and then sees it happen.
 - No trailing full stop. Sentence case.
 
+## A voice-over
+
+Add a voice when the video will be watched with sound on (a launch post, a product page, a talk) or when the user asks for one. Leave it off for a README GIF.
+
+- Keep the caption a headline and put the sentence in `speak`: `{ "say": "Find anything in two keystrokes", "speak": "Looking for something? It is two keystrokes away." }`. The eye gets the short version, the ear gets the full one.
+- Write for the ear. Short sentences, one idea each, words a person would say out loud. Read the line aloud: if you run out of breath, split it.
+- Sell the result, not the steps. "Your report is ready before your coffee is" does more than "Now we click Generate".
+- A line takes about a second for every three words. The recording waits for each line, so five long sentences make a slow video. Aim for a line of six to twelve words per beat.
+- Open with what the product is, in one line. Close with what the viewer should do or remember.
+- Spell out what the voice might stumble on with `pronounce`: product names, acronyms, version numbers. Check with `voice try`.
+- You cannot hear the result. Say so when you hand the video over, name the voice that was used, and offer to change the voice or the wording.
+
 ## What to type
 
 Typed text is on screen for seconds and gets read. Use the kind of thing a real user of this app would enter: a plausible project name, a real-sounding task, a search for something that exists in the seed data. Avoid "test", "foo", "asdf", lorem ipsum, and your own name.
@@ -44,6 +56,7 @@ The default pace suits most apps. Change it only when the contact sheet or the t
 
 - Video over 45 seconds: cut steps first. Then consider `"pace": 0.85`.
 - Things happen before the viewer can read them: add `"pause": 600` to the step that produced the result, rather than slowing everything down.
+- With a voice, the lines set the pace. If the video feels slow, shorten the spoken lines before touching `pace`.
 - The ending feels clipped: add `"pause": 1500` to the last step.
 
 ## The camera
@@ -78,3 +91,5 @@ Open the contact sheet and answer four questions:
 4. Is the last frame the one you would choose as the thumbnail?
 
 Four yes answers and you are finished.
+
+If the video has a voice, also read the list of spoken lines that `record` prints, with the time each one starts. Each line should start as its beat begins, not after the action it describes is over. "Held back" next to a line means the line before it was still being spoken: shorten that one.

@@ -8,6 +8,7 @@ A storyboard is one JSON file. It says which app to open, what to do in it, and 
   "displayUrl": "acme.app",
   "viewport": "desktop",
   "style": { "background": "dusk", "frame": "browser", "zoom": 1.6 },
+  "sound": { "voice": true },
   "output": { "size": "1080p", "formats": ["mp4", "gif"] },
   "steps": [
     { "say": "Start a project in seconds" },
@@ -24,6 +25,7 @@ A storyboard is one JSON file. It says which app to open, what to do in it, and 
 - [Keys](#keys)
 - [Page setup](#page-setup)
 - [Style](#style)
+- [Sound](#sound)
 - [Output](#output)
 - [Secrets](#secrets)
 
@@ -53,7 +55,7 @@ Each step is an object with exactly one action. Every step also accepts `"pause"
 | `goto` | path or URL | | Opens another page. Paths are relative to `url`. |
 | `wait` | milliseconds | | Does nothing for that long. |
 | `waitFor` | target | `nth`, `timeout` | Waits until the target is on the page. Default limit 15 seconds. |
-| `say` | caption text | `for` | Shows a caption. It stays until the next `say`, or for `for` milliseconds. `""` removes it. |
+| `say` | caption text | `for`, `speak`, `audio` | Shows a caption. It stays until the next `say`, or for `for` milliseconds. `""` removes it. With a voice turned on, the caption is also spoken: see [Sound](#sound). |
 | `zoom` | target or `"out"` | `level`, `nth`, `timeout` | Points the camera at something without acting on it, or pulls back to the whole page. |
 | `eval` | JavaScript | | Runs code in the page. The code is an async function body, so `await` works. Use it for setup: seeding `localStorage`, dismissing something, jumping to a state. |
 
@@ -160,6 +162,83 @@ Developer overlays from Next.js, Astro, Nuxt, TanStack Query, Vue devtools and t
 
 Background presets: `dusk` (purple to rose), `ocean` (navy to teal), `ember` (brown to orange), `forest` (green), `slate` (dark grey), `lilac` (light purple), `sky` (light blue), `paper` (warm white). Dark presets suit light apps and the reverse.
 
+## Sound
+
+A video is silent unless the storyboard has `sound`. Sound goes into the MP4; a GIF has none.
+
+```json
+"sound": {
+  "voice": true,
+  "effects": true,
+  "music": "./music.mp3",
+  "pronounce": { "Demoreel": "Demo reel" }
+}
+```
+
+`"sound": true` is short for a voice plus click sounds.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `voice` | off | `true` speaks every caption with the best voice on this machine. Or name one: `"natural"`, `"system"`, or an object (below). |
+| `effects` | `true` | Click and typing sounds, placed on each click and key press. `false` turns them off; a number sets their volume (`0.5` is half, up to `3`). |
+| `music` | none | A sound file (MP3, WAV, M4A, OGG), relative to the storyboard. It is cut or repeated to fit the video, faded in and out, and lowered while the voice speaks. `{ "file": "./music.mp3", "volume": 0.6 }` makes it quieter. |
+| `pronounce` | none | Words the voice gets wrong, and how to say them. Whole words only. The caption and the subtitles keep the real spelling. |
+
+### The voice
+
+With a voice on, each `say` step is spoken as well as shown, and **the recording waits for the voice**: a line starts as its caption appears, the steps after it carry on while it is being said, and the next line does not start until this one has finished. The video never ends in the middle of a sentence. So the spoken lines set the pace; you do not add `wait` steps for them.
+
+There are three voices:
+
+| Voice | What it is | To use it |
+|---|---|---|
+| `"natural"` | Kokoro, a free voice model that runs on this machine. Sounds like a person. English, American and British, men and women. | It is not part of Demoreel. Install it once: `demoreel voice install` (a download of about 400 MB, 510 MB on disk, needs Python 3.10 to 3.13). |
+| `"system"` | The voice the computer already has: `say` on macOS, the speech synthesizer on Windows, `espeak-ng` on Linux. | Nothing to install on macOS and Windows. It sounds like a computer. |
+| your own command | Any text-to-speech program. | `"voice": { "command": "piper --model en.onnx --output_file {out}" }` |
+
+`"voice": true` uses the natural voice when it is installed and the system voice otherwise, and says which one it used.
+
+As an object:
+
+```json
+"voice": { "engine": "natural", "name": "bm_george", "speed": 0.95 }
+```
+
+| Option | Meaning |
+|---|---|
+| `engine` | `"auto"` (the default), `"natural"` or `"system"`. |
+| `name` | Which voice. `demoreel voice` lists the names on this machine. Natural voices are named like `af_heart` (American woman), `am_michael` (American man), `bf_emma` and `bm_george` (British). Without `engine`, the name decides it. |
+| `speed` | `1` is normal, `0.5` to `2`. |
+| `command` | Use a program of your own instead. It is run once per line, without a shell. `{out}` is replaced with the path it must write a sound file to. The words arrive on standard input, or in place of `{text}` if you write that. `{voice}` and `{speed}` are replaced with `name` and `speed`. |
+
+Hear a voice before using it:
+
+```
+node <skill>/scripts/demoreel.mjs voice
+node <skill>/scripts/demoreel.mjs voice try "Your next demo is one sentence away." --voice bm_george
+```
+
+### What a caption says
+
+By default a caption is spoken exactly as written. Three options on a `say` step change that:
+
+```json
+{ "say": "Start a project in seconds", "speak": "This is Lumen. A new project takes a few seconds." }
+{ "say": "Works offline", "speak": false }
+{ "say": "Built by two people", "audio": "./voice/intro.m4a" }
+```
+
+| Option | Meaning |
+|---|---|
+| `speak` | The words to say, when they should differ from the caption: a short headline on screen, a full sentence out loud. `false` shows the caption without saying anything. |
+| `audio` | A clip you recorded, played instead of a generated voice. The recording waits for it the same way. A storyboard can use only clips, and then needs no voice at all. |
+
+Lines are kept between runs: recording again only speaks the lines whose words or voice changed.
+
+### How it is mixed
+
+Every spoken line is brought to the same loudness. Music sits under the voice and drops further while a line is spoken. The finished soundtrack is set to -16 LUFS, the level phones and social sites expect, with peaks held under -1 dB. It is encoded as AAC by the browser. On a machine whose browser cannot encode AAC (most Linux installs), ffmpeg is used if it is installed; without it the MP4 is silent, the soundtrack is saved next to it as a WAV file, and a note says so. `doctor` tells you which case you are in.
+
 ## Output
 
 ```json
@@ -178,7 +257,7 @@ Background presets: `dusk` (purple to rose), `ocean` (navy to teal), `ember` (br
 |---|---|---|
 | `size` | `"1080p"` | A preset or `{ "width": 1600, "height": 900 }`. |
 | `fps` | `30` | 24, 25, 30, 50 or 60. |
-| `formats` | `["mp4", "gif"]` | Which files to make. |
+| `formats` | `["mp4", "gif"]` | Which files to make: any of `"mp4"`, `"gif"` and `"srt"`. `"srt"` writes a subtitle file with the spoken lines, or with the captions when nothing is spoken. |
 | `quality` | `"high"` | MP4 bitrate: `"high"`, `"medium"` or `"small"`. Interface video compresses well, so even `"small"` keeps text sharp. |
 | `maxMB` | `9.5` | Keep the MP4 under this many megabytes by lowering the bitrate for longer videos. The default fits GitHub's 10 MB limit for videos in READMEs and issues. `0` removes the limit. |
 | `dir` | the storyboard's folder | Where files are written. |
@@ -197,11 +276,11 @@ Size presets:
 | `portrait` | 1080 x 1350 | Instagram and LinkedIn feed, taller |
 | `vertical` | 1080 x 1920 | Reels, Shorts, TikTok, Stories |
 
-Files written: `<name>.mp4` (H.264, plays everywhere), `<name>.gif` (loops, embeds in a README), `<name>.poster.png` (a still for thumbnails) and `<name>.sheet.png` (the contact sheet for checking the video).
+Files written: `<name>.mp4` (H.264, plays everywhere, with AAC sound when the storyboard has `sound`), `<name>.gif` (loops, embeds in a README), `<name>.poster.png` (a still for thumbnails), `<name>.sheet.png` (the contact sheet for checking the video) and, when asked for, `<name>.srt` (subtitles to upload with the video on LinkedIn or YouTube).
 
 ## Secrets
 
-Write `${env:NAME}` in a `url`, `goto`, `type` or `eval` value and it is replaced with that environment variable when the storyboard runs. The value never appears in logs, step labels or the contact sheet. Password fields show dots in the video as usual.
+Write `${env:NAME}` in a `url`, `goto`, `type`, `say` or `eval` value and it is replaced with that environment variable when the storyboard runs. The value never appears in logs, step labels or the contact sheet. Password fields show dots in the video as usual.
 
 ```json
 { "type": "${env:DEMO_PASSWORD}", "into": "Password" }

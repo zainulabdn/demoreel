@@ -21,15 +21,16 @@ npm run demo      # records the example app
 | `skills/demoreel/SKILL.md` | What the agent reads: when to use Demoreel and how to work. |
 | `skills/demoreel/references/` | The storyboard reference, the directing guide and troubleshooting. |
 | `skills/demoreel/scripts/demoreel.mjs` | The command line. |
-| `skills/demoreel/scripts/lib/` | Recording: browser control, finding elements, the camera, the render plan. |
-| `skills/demoreel/assets/` | Rendering, which runs in the browser: the compositor, the MP4 writer, the GIF encoder. |
+| `skills/demoreel/scripts/lib/` | Recording: browser control, finding elements, the camera, the render plan, the voices (`voice.mjs`). |
+| `skills/demoreel/assets/` | Rendering, which runs in the browser: the compositor, the MP4 writer, the GIF encoder, the sound mixer (`audio.js`). |
 | `examples/lumen/` | The sample app and storyboards used in the README. |
 | `tests/` | Unit tests, plus browser tests that are skipped when no browser is found. |
 
 ## Rules of the road
 
 - **No dependencies.** If a change needs a package, it needs a very good reason. Node built-ins and the browser cover a lot.
-- **Pure logic gets a unit test.** The camera, the plan, the storyboard checks and both encoders are plain functions for that reason.
+- **Pure logic gets a unit test.** The camera, the plan, the storyboard checks, the sound mixer and both encoders are plain functions for that reason.
+- **Tests need no voice.** They use `tests/fixtures/speak.mjs`, a stand-in that speaks a tone, so they pass on a machine with no speech software.
 - **Errors are written for the person fixing the storyboard.** Say which step, what was wrong, and what to try. Throw `DemoreelError(message, hint)`.
 - **Docs change with the code.** A new step or option is not done until it is in `references/storyboard.md`.
 - Run `claude plugin validate .` if you touch the manifests.
@@ -46,5 +47,6 @@ npm run demo      # records the example app
 ```bash
 node skills/demoreel/scripts/demoreel.mjs record examples/lumen/demo.reel.json --out docs/media
 node skills/demoreel/scripts/demoreel.mjs record examples/lumen/phone.reel.json --out docs/media
+node skills/demoreel/scripts/demoreel.mjs record examples/lumen/narrated.reel.json --out docs/media   # needs the natural voice: demoreel voice install
 node tools/render-icon.mjs
 ```
