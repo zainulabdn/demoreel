@@ -56,7 +56,7 @@ test('every file the skill and README point to exists', () => {
 
 test('the example storyboards are valid', async () => {
   const { loadStoryboard } = await import('../skills/demoreel/scripts/lib/storyboard.mjs');
-  for (const file of ['examples/lumen/demo.reel.json', 'examples/lumen/phone.reel.json']) {
+  for (const file of ['examples/lumen/demo.reel.json', 'examples/lumen/phone.reel.json', 'examples/lumen/narrated.reel.json']) {
     const story = loadStoryboard(`${root}${file}`);
     assert.ok(story.steps.length > 3, file);
   }
@@ -74,7 +74,7 @@ test('the storyboard on the website is the one in the examples folder', () => {
   const block = /<code id="storyboard">([\s\S]*?)<\/code>/.exec(page);
   assert.ok(block, 'the page shows the example storyboard');
   assert.deepEqual(JSON.parse(block[1]), json('examples/lumen/demo.reel.json'));
-  for (const media of ['media/demo.mp4', 'media/demo.poster.png', 'media/phone.mp4', 'media/phone.poster.png', 'media/logo.png']) {
+  for (const media of ['media/demo.mp4', 'media/demo.poster.png', 'media/phone.mp4', 'media/phone.poster.png', 'media/narrated.mp4', 'media/narrated.poster.png', 'media/logo.png']) {
     assert.ok(page.includes(media) && existsSync(`${root}docs/${media}`), `${media} is used and exists`);
   }
 });

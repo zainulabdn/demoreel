@@ -1,0 +1,28 @@
+{
+  "serve": ".",
+  "displayUrl": "lumen.app",
+  "style": { "background": "dusk" },
+  "sound": { "voice": true },
+  "output": { "formats": ["mp4"] },
+  "steps": [
+    { "say": "Start a project in seconds", "speak": "This is Lumen. A new project takes a few seconds." },
+    { "click": "New project" },
+    { "type": "Website launch", "into": "Project name" },
+    { "click": "Create project" },
+
+    { "say": "Add tasks as fast as you can type", "speak": "Add tasks as fast as you can type." },
+    { "type": "Write the announcement post", "into": "Add a task" },
+    { "press": "Enter" },
+    { "type": "Record the demo video" },
+    { "press": "Enter" },
+
+    { "say": "Check things off and watch progress fill in", "speak": "Check things off, and watch your progress fill in." },
+    { "click": "Write the announcement post" },
+    { "click": "Record the demo video" },
+
+    { "say": "Everything is one shortcut away", "speak": "And everything else is one shortcut away." },
+    { "press": "Mod+K" },
+    { "type": "dark" },
+    { "press": "Enter", "pause": 1400 }
+  ]
+}
