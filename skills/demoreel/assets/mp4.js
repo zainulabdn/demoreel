@@ -1,6 +1,7 @@
-// A minimal MP4 writer for one H.264 video track at a constant frame rate.
-// It takes encoded frames (as produced by the browser's VideoEncoder in "avc" format)
-// and wraps them in a file that plays in browsers, QuickTime and on social sites.
+// A minimal MP4 writer for one H.264 video track at a constant frame rate, with an
+// optional AAC sound track. It takes encoded frames (as produced by the browser's
+// VideoEncoder in "avc" format, and AudioEncoder in "aac" format) and wraps them in a
+// file that plays in browsers, QuickTime and on social sites.
 // The index (moov) is written before the media (mdat) so the file starts playing
 // before it has fully downloaded. Works in the browser and in Node. No dependencies.
 
@@ -48,6 +49,38 @@ export function timescaleFor(fps) {
   return 90000 % fps === 0 ? 90000 : fps * 1000;
 }
 
+/** One of the length-prefixed records inside an "esds" box. */
+const descriptor = (tag, ...parts) => {
+  const body = concat(parts);
+  if (body.length > 127) throw new Error('The audio codec setup is larger than this writer supports.');
+  return concat([u8(tag, body.length), body]);
+};
+
+/**
+ * The "sample to chunk" table: how many samples each chunk holds, written only where
+ * the number changes. @param {Array<{count:number}>} chunks
+ */
+function sampleToChunkEntries(chunks) {
+  const entries = [];
+  let previous = -1;
+  chunks.forEach((chunk, index) => {
+    if (chunk.count !== previous) entries.push(u32(index + 1), u32(chunk.count), u32(1));
+    previous = chunk.count;
+  });
+  return entries;
+}
+
+/** The "time to sample" table: runs of samples that last equally long. */
+function timeToSampleEntries(durations) {
+  const runs = [];
+  for (const duration of durations) {
+    const last = runs[runs.length - 1];
+    if (last && last[1] === duration) last[0]++;
+    else runs.push([1, duration]);
+  }
+  return [u32(runs.length), ...runs.flatMap(([count, duration]) => [u32(count), u32(duration)])];
+}
+
 export class Mp4Muxer {
   /**
    * @param {object} options
@@ -65,6 +98,44 @@ export class Mp4Muxer {
     this.data = [];
     this.description = null;
     this.colorSpace = null;
+    this.audio = null;
+  }
+
+  /**
+   * Turn on the sound track. Call before adding audio.
+   * @param {object} options
+   * @param {Uint8Array} options.description  the encoder's "AudioSpecificConfig"
+   * @param {number} options.sampleRate
+   * @param {number} options.channels
+   * @param {number} [options.bitrate]
+   */
+  setAudioConfig({ description, sampleRate, channels, bitrate = 128000 }) {
+    if (!description?.length) throw new Error('The audio encoder produced no decoder configuration.');
+    this.audio = { description: new Uint8Array(description), sampleRate, channels, bitrate, samples: [], data: [], skip: 0, length: null };
+  }
+
+  /**
+   * @param {Uint8Array} data    one encoded AAC packet
+   * @param {number} [frames]    how many samples of sound it holds
+   */
+  addAudioSample(data, frames = 1024) {
+    if (!this.audio) throw new Error('Call setAudioConfig before adding audio.');
+    this.audio.samples.push({ size: data.length, frames });
+    this.audio.data.push(data);
+  }
+
+  /**
+   * Say which part of the encoded sound is the real sound. An AAC encoder puts a short
+   * lead-in before the first sample and pads its last packet with silence. This writes an
+   * edit list and a "roll" sample group, which is how players are told to skip both, so
+   * sound and picture stay in step.
+   * @param {number} skip    samples of lead-in before the sound starts (the encoder's delay)
+   * @param {number} length  samples of real sound after that
+   */
+  setAudioTrim(skip, length) {
+    if (!this.audio) return;
+    this.audio.skip = Math.max(0, Math.round(skip));
+    this.audio.length = Math.max(0, Math.round(length));
   }
 
   /**
@@ -99,6 +170,7 @@ export class Mp4Muxer {
     if (!this.samples.length) throw new Error('No frames were encoded.');
     const count = this.samples.length;
     const { timescale, delta } = this;
+    const audio = this.audio?.samples.length ? this.audio : null;
 
     // Frames arrive in decode order. If the encoder reordered any (B-frames), record how far
     // each one's display time is from its decode time, and shift the track to start at zero.
@@ -111,19 +183,52 @@ export class Mp4Muxer {
       return offset;
     });
 
-    const mediaDuration = count * delta;
     const movieTimescale = 1000;
-    const movieDuration = Math.round((mediaDuration * movieTimescale) / timescale);
+    const mediaDuration = count * delta;
+    const videoDuration = Math.round((mediaDuration * movieTimescale) / timescale);
+
+    // One chunk of video per second, each followed by the sound for that second, so a
+    // player reading the file from the start always has both.
     const perChunk = Math.max(1, Math.round(this.fps));
-    const chunkCount = Math.ceil(count / perChunk);
-    const lastChunkSize = count - (chunkCount - 1) * perChunk;
+    const videoChunks = [];
+    for (let first = 0; first < count; first += perChunk) videoChunks.push({ first, count: Math.min(perChunk, count - first) });
+
+    const audioChunks = [];
+    let audioFrames = 0;
+    if (audio) {
+      let chunk = null;
+      audio.samples.forEach((sample, index) => {
+        const slot = Math.min(Math.floor(audioFrames / audio.sampleRate), videoChunks.length - 1);
+        if (!chunk || chunk.slot !== slot) {
+          chunk = { slot, first: index, count: 0 };
+          audioChunks.push(chunk);
+        }
+        chunk.count++;
+        audioFrames += sample.frames;
+      });
+    }
+    // The part of the encoded sound that is played: all of it, unless a trim was given.
+    const audioTrimmed = audio !== null && audio.length !== null && audio.skip + audio.length <= audioFrames;
+    const audioPlayed = audioTrimmed ? audio.length : audioFrames;
+    const audioDuration = audio ? Math.round((audioPlayed * movieTimescale) / audio.sampleRate) : 0;
+    const movieDuration = Math.max(videoDuration, audioDuration);
+
+    // The order of the media in the file: video chunk, its sound, next video chunk, ...
+    const order = [];
+    let nextAudio = 0;
+    videoChunks.forEach((chunk, slot) => {
+      order.push({ track: 'video', chunk });
+      while (nextAudio < audioChunks.length && audioChunks[nextAudio].slot === slot) order.push({ track: 'audio', chunk: audioChunks[nextAudio++] });
+    });
 
     const build = (firstChunkOffset) => {
-      const chunkOffsets = [];
+      const videoOffsets = [];
+      const audioOffsets = [];
       let position = firstChunkOffset;
-      for (let i = 0; i < count; i++) {
-        if (i % perChunk === 0) chunkOffsets.push(position);
-        position += this.samples[i].size;
+      for (const { track, chunk } of order) {
+        const samples = track === 'video' ? this.samples : audio.samples;
+        (track === 'video' ? videoOffsets : audioOffsets).push(position);
+        for (let i = chunk.first; i < chunk.first + chunk.count; i++) position += samples[i].size;
       }
 
       const visualEntry = [
@@ -153,9 +258,7 @@ export class Mp4Muxer {
         if (sample.key) keyframes.push(index + 1);
       });
 
-      const sampleToChunk = [u32(1), u32(Math.min(perChunk, count)), u32(1)];
-      if (chunkCount > 1 && lastChunkSize !== perChunk) sampleToChunk.push(u32(chunkCount), u32(lastChunkSize), u32(1));
-
+      const sampleToChunk = sampleToChunkEntries(videoChunks);
       const tables = [
         fullBox('stsd', 0, 0, u32(1), box('avc1', ...visualEntry)),
         fullBox('stts', 0, 0, u32(1), u32(count), u32(delta)),
@@ -169,7 +272,7 @@ export class Mp4Muxer {
       tables.push(
         fullBox('stsc', 0, 0, u32(sampleToChunk.length / 3), ...sampleToChunk),
         fullBox('stsz', 0, 0, u32(0), u32(count), ...this.samples.map((sample) => u32(sample.size))),
-        fullBox('stco', 0, 0, u32(chunkOffsets.length), ...chunkOffsets.map((offset) => u32(offset))),
+        fullBox('stco', 0, 0, u32(videoOffsets.length), ...videoOffsets.map((offset) => u32(offset))),
       );
 
       const media = box(
@@ -187,36 +290,112 @@ export class Mp4Muxer {
       const trackParts = [
         fullBox(
           'tkhd', 0, 3,
-          u32(0), u32(0), u32(1), u32(0), u32(movieDuration),
+          u32(0), u32(0), u32(1), u32(0), u32(videoDuration),
           zeros(8), u16(0), u16(0), u16(0), u16(0),
           MATRIX, u32(this.width << 16), u32(this.height << 16),
         ),
       ];
       if (shift > 0) {
-        trackParts.push(box('edts', fullBox('elst', 0, 0, u32(1), u32(movieDuration), u32(shift), u32(0x00010000))));
+        trackParts.push(box('edts', fullBox('elst', 0, 0, u32(1), u32(videoDuration), u32(shift), u32(0x00010000))));
       }
       trackParts.push(media);
+      const tracks = [box('trak', ...trackParts)];
+
+      if (audio) {
+        const audioEntry = box(
+          'mp4a',
+          zeros(6), u16(1), // reserved, data reference index
+          zeros(8), // version, revision, vendor
+          u16(audio.channels), u16(16), // channels, bits per sample
+          u16(0), u16(0), // pre_defined, reserved
+          u32(audio.sampleRate * 65536), // sample rate as 16.16 fixed point
+          fullBox(
+            'esds', 0, 0,
+            descriptor(
+              0x03, u16(0), u8(0), // elementary stream: id 0, no flags
+              descriptor(
+                0x04, u8(0x40, 0x15), zeros(3), // MPEG-4 audio, an audio stream, buffer size not stated
+                u32(audio.bitrate), u32(audio.bitrate), // peak and average bitrate
+                descriptor(0x05, audio.description),
+              ),
+              descriptor(0x06, u8(0x02)),
+            ),
+          ),
+        );
+        const audioSampleToChunk = sampleToChunkEntries(audioChunks);
+        const audioParts = [
+          fullBox(
+            'tkhd', 0, 3,
+            u32(0), u32(0), u32(2), u32(0), u32(audioDuration),
+            zeros(8), u16(0), u16(1), u16(0x0100), u16(0), // layer, alternate group, full volume
+            MATRIX, u32(0), u32(0),
+          ),
+        ];
+        if (audioTrimmed) {
+          audioParts.push(box('edts', fullBox('elst', 0, 0, u32(1), u32(audioDuration), u32(audio.skip), u32(0x00010000))));
+        }
+        tracks.push(
+          box(
+            'trak',
+            ...audioParts,
+            box(
+              'mdia',
+              fullBox('mdhd', 0, 0, u32(0), u32(0), u32(audio.sampleRate), u32(audioFrames), u16(0x55c4), u16(0)),
+              fullBox('hdlr', 0, 0, u32(0), text('soun'), zeros(12), text('SoundHandler\0')),
+              box(
+                'minf',
+                fullBox('smhd', 0, 0, u16(0), u16(0)),
+                box('dinf', fullBox('dref', 0, 0, u32(1), fullBox('url ', 0, 1))),
+                box(
+                  'stbl',
+                  fullBox('stsd', 0, 0, u32(1), audioEntry),
+                  fullBox('stts', 0, 0, ...timeToSampleEntries(audio.samples.map((sample) => sample.frames))),
+                  fullBox('stsc', 0, 0, u32(audioSampleToChunk.length / 3), ...audioSampleToChunk),
+                  fullBox('stsz', 0, 0, u32(0), u32(audio.samples.length), ...audio.samples.map((sample) => u32(sample.size))),
+                  fullBox('stco', 0, 0, u32(audioOffsets.length), ...audioOffsets.map((offset) => u32(offset))),
+                  // A "roll" sample group says each packet needs the one before it to decode cleanly.
+                  // It must accompany the edit list: without it, Apple's players (QuickTime, Safari,
+                  // iOS) skip the edit list's lead-in and then their own assumed 2112 samples as
+                  // well, and the sound plays 44 ms early. With it, ffmpeg, Chrome and Apple agree.
+                  ...(audioTrimmed
+                    ? [
+                        fullBox('sgpd', 1, 0, text('roll'), u32(2), u32(1), u16(0xffff)),
+                        fullBox('sbgp', 0, 0, text('roll'), u32(1), u32(audio.samples.length), u32(1)),
+                      ]
+                    : []),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
 
       return box(
         'moov',
         fullBox(
           'mvhd', 0, 0,
           u32(0), u32(0), u32(movieTimescale), u32(movieDuration),
-          u32(0x00010000), u16(0x0100), zeros(10), MATRIX, zeros(24), u32(2),
+          u32(0x00010000), u16(0x0100), zeros(10), MATRIX, zeros(24), u32(audio ? 3 : 2),
         ),
-        box('trak', ...trackParts),
+        ...tracks,
       );
     };
 
     const ftyp = box('ftyp', text('isom'), u32(0x200), text('isom'), text('iso2'), text('avc1'), text('mp41'));
     let mediaSize = 0;
     for (const sample of this.samples) mediaSize += sample.size;
+    if (audio) for (const sample of audio.samples) mediaSize += sample.size;
     if (mediaSize + 8 > 0xffffffff) throw new Error('The video is larger than 4 GB, which this writer does not support.');
 
     // The index size does not depend on the offsets inside it, so build once to measure, then for real.
     const moovSize = build(0).length;
     const moov = build(ftyp.length + moovSize + 8);
     const mdatHeader = concat([u32(mediaSize + 8), text('mdat')]);
-    return [ftyp, moov, mdatHeader, ...this.data];
+    const media = [];
+    for (const { track, chunk } of order) {
+      const data = track === 'video' ? this.data : audio.data;
+      for (let i = chunk.first; i < chunk.first + chunk.count; i++) media.push(data[i]);
+    }
+    return [ftyp, moov, mdatHeader, ...media];
   }
 }
